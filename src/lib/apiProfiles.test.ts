@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
@@ -13,7 +13,32 @@ import {
   mergeImportedSettings,
   normalizeSettings,
   switchApiProfileProvider,
+  validateApiProfile,
 } from './apiProfiles'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+describe('validateApiProfile', () => {
+  it('allows empty API URL when API proxy is enabled and available', () => {
+    vi.stubEnv('VITE_API_PROXY_AVAILABLE', 'true')
+
+    expect(validateApiProfile(createDefaultOpenAIProfile({
+      baseUrl: '',
+      apiKey: 'test-key',
+      apiProxy: true,
+    }))).toBeNull()
+  })
+
+  it('still requires API URL when API proxy is unavailable', () => {
+    expect(validateApiProfile(createDefaultOpenAIProfile({
+      baseUrl: '',
+      apiKey: 'test-key',
+      apiProxy: true,
+    }))).toBe('缺少 API URL')
+  })
+})
 
 describe('mergeImportedSettings', () => {
   it('replaces the default OpenAI profile with legacy imported settings when current settings are untouched', () => {
@@ -527,6 +552,40 @@ describe('custom providers', () => {
     expect(profile.provider).toBe(provider.id)
     expect(profile.baseUrl).toBe(DEFAULT_SETTINGS.baseUrl)
     expect(profile.model).toBe(DEFAULT_IMAGES_MODEL)
+  })
+
+  it('enables streaming by default and preserves partial image count', () => {
+    expect(createDefaultOpenAIProfile().streamImages).toBe(true)
+    expect(createDefaultOpenAIProfile().streamPartialImages).toBe(1)
+    expect(DEFAULT_SETTINGS.streamImages).toBe(true)
+    expect(DEFAULT_SETTINGS.streamPartialImages).toBe(1)
+    expect(DEFAULT_SETTINGS.profiles[0].streamImages).toBe(true)
+    expect(DEFAULT_SETTINGS.profiles[0].streamPartialImages).toBe(1)
+
+    const normalized = normalizeSettings({
+      profiles: [
+        createDefaultOpenAIProfile({ streamImages: false, streamPartialImages: 3 }),
+      ],
+    })
+
+    expect(normalized.streamImages).toBe(false)
+    expect(normalized.streamPartialImages).toBe(3)
+    expect(normalized.profiles[0].streamImages).toBe(false)
+    expect(normalized.profiles[0].streamPartialImages).toBe(3)
+
+    const clamped = normalizeSettings({
+      profiles: [
+        createDefaultOpenAIProfile({ streamPartialImages: 8 }),
+      ],
+    })
+
+    expect(clamped.profiles[0].streamPartialImages).toBe(3)
+  })
+
+  it('enables Agent submit auto scroll by default', () => {
+    expect(DEFAULT_SETTINGS.agentScrollToBottomAfterSubmit).toBe(true)
+    expect(normalizeSettings({}).agentScrollToBottomAfterSubmit).toBe(true)
+    expect(normalizeSettings({ agentScrollToBottomAfterSubmit: false }).agentScrollToBottomAfterSubmit).toBe(false)
   })
 
   it('restores OpenAI-compatible URL after switching through fal.ai', () => {
